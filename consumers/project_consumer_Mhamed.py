@@ -1,74 +1,49 @@
-import json
-from collections import defaultdict
-from kafka import KafkaConsumer
 import matplotlib.pyplot as plt
-from matplotlib.animation import FuncAnimation
-from datetime import datetime
+import matplotlib.animation as animation
+import random
 
-# Kafka Configuration
-TOPIC = "project_json"
-KAFKA_SERVER = "localhost:9092"
+# Initial sentiment data
+sentiment_data = ['positive', 'neutral', 'negative', 'positive', 'neutral', 'positive']
 
-# Data Storage
-message_counts = defaultdict(int)  # Store total message counts per category
-sentiment_data = defaultdict(list)  # Store sentiment values per category
+# Function to update sentiment data (simulating real-time data changes)
+def update_sentiment_data():
+    sentiments = ['positive', 'neutral', 'negative']
+    sentiment_data.append(random.choice(sentiments))  # Simulate new sentiment
+    # Keep the list size fixed to the last 10 data points
+    if len(sentiment_data) > 10:
+        sentiment_data.pop(0)
 
-# Consumer Setup
-consumer = KafkaConsumer(
-    TOPIC,
-    bootstrap_servers=KAFKA_SERVER,
-    value_deserializer=lambda x: json.loads(x.decode('utf-8'))
-)
-
-def consume_messages():
-    """Function to consume messages from Kafka and update message counts and sentiment."""
-    print("Waiting for messages...")
-    for message in consumer:
-        data = message.value
-        category = data.get("category", "other")
-        sentiment = data.get("sentiment", 0)
-        
-        # Increment the count for this category
-        message_counts[category] += 1
-
-        # Add the sentiment value to the corresponding category
-        sentiment_data[category].append(sentiment)
-
-        print(f"Updated message counts: {message_counts}")
-        print(f"Updated sentiment data: {sentiment_data}")
-
-def calculate_average_sentiment():
-    """Function to calculate the average sentiment for each category."""
-    average_sentiment = {}
-    for category, sentiments in sentiment_data.items():
-        if sentiments:
-            average_sentiment[category] = sum(sentiments) / len(sentiments)
-    return average_sentiment
-
+# Function to animate the pie chart
 def animate(i):
-    """Function to update the real-time visualization of sentiment trends."""
-    plt.cla()
-    
-    # Calculate average sentiment for each category
-    average_sentiment = calculate_average_sentiment()
-    
-    # Separate categories and their average sentiments for plotting
-    categories = list(average_sentiment.keys())
-    avg_sentiments = list(average_sentiment.values())
-    
-    plt.plot(categories, avg_sentiments, marker='o', linestyle='-', color='b')
-    plt.xlabel("Categories")
-    plt.ylabel("Average Sentiment")
-    plt.title("Real-Time Average Sentiment by Category - David Rodriguez")
-    plt.xticks(rotation=45)
+    # Update sentiment data
+    update_sentiment_data()
 
-# Main
-if __name__ == "__main__":
-    # Start Kafka consumer in the background
-    import threading
-    threading.Thread(target=consume_messages, daemon=True).start()
+    # Count occurrences of each sentiment
+    positive_count = sentiment_data.count('positive')
+    neutral_count = sentiment_data.count('neutral')
+    negative_count = sentiment_data.count('negative')
 
-    # Start Matplotlib animation
-    fig = plt.figure()
-    ani = FuncAnimation(fig, animate, interval=1000, cache_frame_data=False)
-    plt.show()
+    # Data for pie chart
+    counts = [positive_count, neutral_count, negative_count]
+    labels = ['Positive', 'Neutral', 'Negative']
+
+    # Clear the previous plot to update
+    ax.clear()
+
+    # Create a pie chart
+    ax.pie(counts, labels=labels, autopct='%1.1f%%', startangle=90, colors=['#4CAF50', '#FFC107', '#F44336'])
+
+    # Equal aspect ratio ensures that pie is drawn as a circle.
+    ax.axis('equal')
+
+    # Set a title for the chart
+    ax.set_title('Real-Time Sentiment Distribution - Mhamed')
+
+# Create the figure and axis for the plot
+fig, ax = plt.subplots(figsize=(7, 7))
+
+# Animate the plot (updates every 1000 milliseconds, or 1 second)
+ani = animation.FuncAnimation(fig, animate, interval=1000)
+
+# Display the real-time pie chart
+plt.show()
