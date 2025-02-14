@@ -1,200 +1,74 @@
-"""
-basic_json_consumer_case.py
-
-Read a JSON-formatted file as it is being written. 
-
-Example JSON message:
-{"message": "I just saw a movie! It was amazing.", "author": "Eve"}
-"""
-
-#####################################
-# Import Modules
-#####################################
-
-# Import packages from Python Standard Library
 import json
-import os # for file operations
-import sys # to exit early
-import time
-import pathlib
-from collections import defaultdict  # data structure for counting author occurrences
-
-# IMPORTANT
-# Import Matplotlib.pyplot for live plotting
+from collections import defaultdict
+from kafka import KafkaConsumer
 import matplotlib.pyplot as plt
+from matplotlib.animation import FuncAnimation
+from datetime import datetime
 
-# Import functions from local modules
-from utils.utils_logger import logger
+# Kafka Configuration
+TOPIC = "project_json"
+KAFKA_SERVER = "localhost:9092"
 
+# Data Storage
+message_counts = defaultdict(int)  # Store total message counts per category
+sentiment_data = defaultdict(list)  # Store sentiment values per category
 
-#####################################
-# Set up Paths - read from the file the producer writes
-#####################################
+# Consumer Setup
+consumer = KafkaConsumer(
+    TOPIC,
+    bootstrap_servers=KAFKA_SERVER,
+    value_deserializer=lambda x: json.loads(x.decode('utf-8'))
+)
 
-PROJECT_ROOT = pathlib.Path(__file__).parent.parent
-DATA_FOLDER = PROJECT_ROOT.joinpath("data")
-DATA_FILE = DATA_FOLDER.joinpath("buzz_live.json")
+def consume_messages():
+    """Function to consume messages from Kafka and update message counts and sentiment."""
+    print("Waiting for messages...")
+    for message in consumer:
+        data = message.value
+        category = data.get("category", "other")
+        sentiment = data.get("sentiment", 0)
+        
+        # Increment the count for this category
+        message_counts[category] += 1
 
-logger.info(f"Project root: {PROJECT_ROOT}")
-logger.info(f"Data folder: {DATA_FOLDER}")
-logger.info(f"Data file: {DATA_FILE}")
+        # Add the sentiment value to the corresponding category
+        sentiment_data[category].append(sentiment)
 
-#####################################
-# Set up data structures
-#####################################
+        print(f"Updated message counts: {message_counts}")
+        print(f"Updated sentiment data: {sentiment_data}")
 
-author_counts = defaultdict(int)
+def calculate_average_sentiment():
+    """Function to calculate the average sentiment for each category."""
+    average_sentiment = {}
+    for category, sentiments in sentiment_data.items():
+        if sentiments:
+            average_sentiment[category] = sum(sentiments) / len(sentiments)
+    return average_sentiment
 
-#####################################
-# Set up live visuals
-#####################################
+def animate(i):
+    """Function to update the real-time visualization of sentiment trends."""
+    plt.cla()
+    
+    # Calculate average sentiment for each category
+    average_sentiment = calculate_average_sentiment()
+    
+    # Separate categories and their average sentiments for plotting
+    categories = list(average_sentiment.keys())
+    avg_sentiments = list(average_sentiment.values())
+    
+    plt.plot(categories, avg_sentiments, marker='o', linestyle='-', color='b')
+    plt.xlabel("Categories")
+    plt.ylabel("Average Sentiment")
+    plt.title("Real-Time Average Sentiment by Category - David Rodriguez")
+    plt.xticks(rotation=45)
 
-fig, ax = plt.subplots()
-plt.ion()  # Turn on interactive mode for live updates
-
-#####################################
-# Define an update chart function for live plotting
-# This will get called every time a new message is processed
-#####################################
-
-
-def update_chart():
-    """Update the live chart with the latest author counts."""
-    # Clear the previous chart
-    ax.clear()
-
-    # Get the authors and counts from the dictionary
-    authors_list = list(author_counts.keys())
-    counts_list = list(author_counts.values())
-
-    # Create a bar chart using the bar() method.
-    # Pass in the x list, the y list, and the color
-    ax.bar(authors_list, counts_list, color="green")
-
-    # Use the built-in axes methods to set the labels and title
-    ax.set_xlabel("Authors")
-    ax.set_ylabel("Message Counts")
-    ax.set_title("Basic Real-Time Author Message Counts")
-
-    # Use the set_xticklabels() method to rotate the x-axis labels
-    # Pass in the x list, specify the rotation angle is 45 degrees,
-    # and align them to the right
-    # ha stands for horizontal alignment
-    ax.set_xticklabels(authors_list, rotation=45, ha="right")
-
-    # Use the tight_layout() method to automatically adjust the padding
-    plt.tight_layout()
-
-    # Draw the chart
-    plt.draw()
-
-    # Pause briefly to allow some time for the chart to render
-    plt.pause(0.01)
-
-
-#####################################
-# Process Message Function
-#####################################
-
-
-def process_message(message: str) -> None:
-    """
-    Process a single JSON message and update the chart.
-
-    Args:
-        message (str): The JSON message as a string.
-    """
-    try:
-        # Log the raw message for debugging
-        logger.debug(f"Raw message: {message}")
-
-        # Parse the JSON string into a Python dictionary
-        message_dict: dict = json.loads(message)
-       
-        # Ensure the processed JSON is logged for debugging
-        logger.info(f"Processed JSON message: {message_dict}")
-
-        # Ensure it's a dictionary before accessing fields
-        if isinstance(message_dict, dict):
-            # Extract the 'author' field from the Python dictionary
-            author = message_dict.get("author", "unknown")
-            logger.info(f"Message received from author: {author}")
-
-            # Increment the count for the author
-            author_counts[author] += 1
-
-            # Log the updated counts
-            logger.info(f"Updated author counts: {dict(author_counts)}")
-
-            # Update the chart
-            update_chart()
-
-            # Log the updated chart
-            logger.info(f"Chart updated successfully for message: {message}")
-
-        else:
-            logger.error(f"Expected a dictionary but got: {type(message_dict)}")
-
-    except json.JSONDecodeError:
-        logger.error(f"Invalid JSON message: {message}")
-    except Exception as e:
-        logger.error(f"Error processing message: {e}")
-
-
-#####################################
-# Main Function
-#####################################
-
-
-def main() -> None:
-    """
-    Main entry point for the consumer.
-    - Monitors a file for new messages and updates a live chart.
-    """
-
-    logger.info("START consumer.")
-
-    # Verify the file we're monitoring exists if not, exit early
-    if not DATA_FILE.exists():
-        logger.error(f"Data file {DATA_FILE} does not exist. Exiting.")
-        sys.exit(1)
-
-    try:
-        # Try to open the file and read from it
-        with open(DATA_FILE, "r") as file:
-
-            # Move the cursor to the end of the file
-            file.seek(0, os.SEEK_END)
-            print("Consumer is ready and waiting for new JSON messages...")
-
-            while True:
-                # Read the next line from the file
-                line = file.readline()
-
-                # If we strip whitespace from the line and it's not empty
-                if line.strip():  
-                    # Process this new message
-                    process_message(line)
-                else:
-                    # otherwise, wait a half second before checking again
-                    logger.debug("No new messages. Waiting...")
-                    delay_secs = 0.5 
-                    time.sleep(delay_secs) 
-                    continue 
-
-    except KeyboardInterrupt:
-        logger.info("Consumer interrupted by user.")
-    except Exception as e:
-        logger.error(f"Unexpected error: {e}")
-    finally:
-        plt.ioff()
-        plt.show()
-        logger.info("Consumer closed.")
-
-
-#####################################
-# Conditional Execution
-#####################################
-
+# Main
 if __name__ == "__main__":
-    main()
+    # Start Kafka consumer in the background
+    import threading
+    threading.Thread(target=consume_messages, daemon=True).start()
+
+    # Start Matplotlib animation
+    fig = plt.figure()
+    ani = FuncAnimation(fig, animate, interval=1000, cache_frame_data=False)
+    plt.show()
